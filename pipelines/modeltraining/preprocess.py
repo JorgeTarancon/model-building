@@ -27,16 +27,12 @@ if __name__ == "__main__":
     parser.add_argument("--input-data", type=str, required=True)
     parser.add_argument("--tracking-server-arn", type=str, required=True)
     parser.add_argument("--experiment-name", type=str, required=True)
-    parser.add_argument("--pipeline-run-name", type=str, required=True)
-    parser.add_argument("--run-id", type=str, required=False)
     parser.add_argument("--output-s3-prefix", type=str, required=False)
     args = parser.parse_args()
 
     input_data = args.input_data
     tracking_server_arn = args.tracking_server_arn
     experiment_name = args.experiment_name
-    pipeline_run_name = args.pipeline_run_name
-    run_id = args.run_id
     output_s3_prefix = args.output_s3_prefix
 
     base_dir = "/opt/ml/processing"
@@ -52,8 +48,8 @@ if __name__ == "__main__":
         suffix = strftime('%d-%H-%M-%S', gmtime())
         mlflow.set_tracking_uri(tracking_server_arn)
         experiment = mlflow.set_experiment(experiment_name=experiment_name)
-        pipeline_run = mlflow.start_run(run_name=pipeline_run_name)
-        run = mlflow.start_run(run_id=run_id) if run_id else mlflow.start_run(run_name=f"processing-{suffix}", nested=True)
+        pipeline_run = mlflow.start_run(run_name=experiment_name)
+        run = mlflow.start_run(run_name=f"processing-{suffix}", nested=True)
 
         # Load data
         logger.debug("Reading downloaded data.")

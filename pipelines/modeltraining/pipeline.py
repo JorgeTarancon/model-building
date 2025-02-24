@@ -160,20 +160,17 @@ def get_pipeline_custom_tags(new_tags, region, sagemaker_project_name=None):
 
 def get_pipeline(
     region,
+    sagemaker_project_id=None,
+    sagemaker_project_name=None,
     role=None,
     bucket_name=None,
     input_s3_url=None,
     model_package_group_name=None,
-    pipeline_name="training",
-    base_job_prefix="training-pipeline",
+    pipeline_name_prefix="training-pipeline",
     processing_instance_type="ml.m5.xlarge",
     training_instance_type="ml.m5.xlarge",
-    sagemaker_project_name=None,
-    tracking_server_arn=None,
-    experiment_name=None,
-    pipeline_run_name=None,
-    run_id=None,
-    
+    test_score_threshold=None,
+    tracking_server_arn=None
 ):
     """Gets a SageMaker ML Pipeline instance working with on abalone data.
 
@@ -188,6 +185,9 @@ def get_pipeline(
     if input_s3_url is None:
         print("input_s3_url must be provided. Exiting...")
         return None
+
+    pipeline_name = f"{pipeline_name_prefix}-{sagemaker_project_id}"
+    experiment_name = pipeline_name
 
     sagemaker_session = get_session(region, bucket_name)
     #default_bucket = sagemaker_session.default_bucket()
@@ -253,7 +253,7 @@ def get_pipeline(
         framework_version="0.23-1",
         instance_type=processing_instance_type,
         instance_count=processing_instance_count,
-        base_job_name=f"{base_job_prefix}/preprocess",
+        base_job_name=f"{pipeline_name_prefix}/preprocess",
         sagemaker_session=pipeline_session,
         role=role,
     )
@@ -268,14 +268,12 @@ def get_pipeline(
         arguments=["--input-data", input_data,
                    "--tracking-server-arn", tracking_server_arn,
                    "--experiment-name", experiment_name,
-                   "--pipeline-run-name", pipeline_run_name,
-                   "--run-id", run_id,
-                   "--output-s3-prefix", f"s3://{bucket_name}/{base_job_prefix}/output",],
+                   "--output-s3-prefix", f"s3://{bucket_name}/{pipeline_name_prefix}/output",],
     )
 
     step_process = ProcessingStep(
         name="Preprocess",
-        step_args=step_args,        
+        step_args=step_args,
     )
 
     # pipeline instance

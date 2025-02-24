@@ -18,19 +18,18 @@ phases:
           --role-arn $SAGEMAKER_PIPELINE_ROLE_ARN \
           --tags "[{\"Key\":\"sagemaker:project-name\",\"Value\":\"${SAGEMAKER_PROJECT_NAME}\"}, {\"Key\":\"sagemaker:project-id\", \"Value\":\"${SAGEMAKER_PROJECT_ID}\"}]" \
           --kwargs "{ \
+                \"region\":\"${AWS_REGION}\", \
+                \"sagemaker_project_id\":\"${SAGEMAKER_PROJECT_ID}\",\
+                \"sagemaker_project_name\":\"${SAGEMAKER_PROJECT_NAME}\",\
+                \"role\":\"arn:aws:iam::090684510598:role/service-role/AmazonSageMaker-ExecutionRole-20250205T134620\",\
+                \"bucket_name\":\"train-and-deploy-workshop\",\
                 \"input_s3_url\":\"s3://train-and-deploy-workshop/input/bank-additional-full.csv\", \
                 \"model_package_group_name\":\"build-deploy-monitor-p-4ciq394xugmz\",\
                 \"pipeline_name_prefix\":\"model-training\",\
-                \"role\":\"arn:aws:iam::090684510598:role/service-role/AmazonSageMaker-ExecutionRole-20250205T134620\",\
-                \"tracking_server_arn\":\"arn:aws:sagemaker:eu-west-1:090684510598:mlflow-tracking-server/mlflow-ts-05-13-00-00\", \
-                \"region\":\"${AWS_REGION}\", \
-                \"sagemaker_project_name\":\"${SAGEMAKER_PROJECT_NAME}\",\
-                \"sagemaker_project_id\":\"${SAGEMAKER_PROJECT_ID}\",\
                 \"process_instance_type\":\"ml.m5.large\", \
                 \"train_instance_type\":\"ml.m5.xlarge\", \
                 \"test_score_threshold\":0.70, \
-                \"bucket_prefix\":\"training-pipeline\",\
-                \"bucket_name\":\"train-and-deploy-workshop\"\
+                \"tracking_server_arn\":\"arn:aws:sagemaker:eu-west-1:090684510598:mlflow-tracking-server/mlflow-ts-05-13-00-00\" \
                     }"
       - echo "Create/update of the SageMaker Pipeline and a pipeline execution completed."
 
