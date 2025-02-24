@@ -190,13 +190,16 @@ def get_pipeline(
     pipeline_name = f"{pipeline_name_prefix}-{sagemaker_project_id}"
     experiment_name = pipeline_name
 
-    sagemaker_session = get_session(region, bucket_name)
+    #sagemaker_session = get_session(region, bucket_name)
     #default_bucket = sagemaker_session.default_bucket()
-    if role is None:
-        role = sagemaker.session.get_execution_role(sagemaker_session)
+    #if role is None:
+        #role = sagemaker.session.get_execution_role(sagemaker_session)
 
     pipeline_session = get_pipeline_session(region, bucket_name)
     sm = pipeline_session.sagemaker_client
+
+    if role is None:
+        role = sagemaker.session.get_execution_role(pipeline_session)
     
     # parameters for pipeline execution
     processing_instance_count = ParameterInteger(name="ProcessingInstanceCount", default_value=1)
