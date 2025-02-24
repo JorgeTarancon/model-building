@@ -435,6 +435,7 @@ def get_pipeline(
         model_data=step_train.properties.ModelArtifacts.S3ModelArtifacts,
         sagemaker_session=session,
         role=role,
+        name=f"{pipeline_name}-model",
     )
 
     step_create_model = ModelStep(
@@ -577,7 +578,7 @@ def get_pipeline(
     ### MODEL EXPLAINABILITY ###
 
     ### EVALUATION ###
-    
+
     ### EVALUATION ###
 
     ### BUILD PIPELINE ###
