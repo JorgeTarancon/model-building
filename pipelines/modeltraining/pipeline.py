@@ -432,6 +432,7 @@ def get_pipeline(
     step_args = model.create(
         instance_type="ml.m5.large",
         accelerator_type="ml.eia1.medium",
+        name=f"{pipeline_name}-model"
     )
 
     step_create_model = ModelStep(
