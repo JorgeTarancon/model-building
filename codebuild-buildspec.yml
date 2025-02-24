@@ -26,8 +26,8 @@ phases:
                 \"input_s3_url\":\"s3://train-and-deploy-workshop/input/bank-additional-full.csv\", \
                 \"model_package_group_name\":\"build-deploy-monitor-p-4ciq394xugmz\",\
                 \"pipeline_name_prefix\":\"model-training\",\
-                \"process_instance_type\":\"ml.m5.large\", \
-                \"train_instance_type\":\"ml.m5.xlarge\", \
+                \"processing_instance_type\":\"ml.m5.large\", \
+                \"training_instance_type\":\"ml.m5.xlarge\", \
                 \"test_score_threshold\":0.70, \
                 \"tracking_server_arn\":\"arn:aws:sagemaker:eu-west-1:090684510598:mlflow-tracking-server/mlflow-ts-05-13-00-00\" \
                     }"
