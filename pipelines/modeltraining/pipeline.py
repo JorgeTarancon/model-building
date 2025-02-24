@@ -439,34 +439,6 @@ def get_pipeline(
         step_args=step_args,
     )
 
-    ### Check the Model Quality
-
-    # In this `QualityCheckStep` we calculate the baselines for statistics and constraints using the
-    # predictions that the model generates from the test dataset (output from the TransformStep). We define
-    # the problem type as 'Regression' in the `ModelQualityCheckConfig` along with specifying the columns
-    # which represent the input and output. Since the dataset has no headers, `_c0`, `_c1` are auto-generated
-    # header names that should be used in the `ModelQualityCheckConfig`.
-
-    model_quality_check_config = ModelQualityCheckConfig(
-        baseline_dataset=step_evaluate['prediction_baseline_data'],
-        dataset_format=DatasetFormat.csv(header=True),
-        output_s3_uri=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'modelqualitycheckstep']),
-        problem_type='BinaryClassification',
-        inference_attribute='prediction',
-        ground_truth_attribute='label'
-    )
-
-    model_quality_check_step = QualityCheckStep(
-        name="ModelQualityCheckStep",
-        skip_check=skip_check_model_quality,
-        register_new_baseline=register_new_baseline_model_quality,
-        quality_check_config=model_quality_check_config,
-        check_job_config=check_job_config,
-        supplied_baseline_statistics=supplied_baseline_statistics_model_quality,
-        supplied_baseline_constraints=supplied_baseline_constraints_model_quality,
-        model_package_group_name=model_package_group_name
-    )
-
     ### Check for Model Bias
 
     # Similar to the Data Bias check step, a `BiasConfig` is defined and Clarify is used to calculate
@@ -570,6 +542,34 @@ def get_pipeline(
         tracking_server_arn=tracking_server_arn_param,
         experiment_name=step_get_datasets['experiment_name'],
         pipeline_run_id=step_get_datasets['pipeline_run_id'],
+    )
+
+    ### Check the Model Quality
+
+    # In this `QualityCheckStep` we calculate the baselines for statistics and constraints using the
+    # predictions that the model generates from the test dataset (output from the TransformStep). We define
+    # the problem type as 'Regression' in the `ModelQualityCheckConfig` along with specifying the columns
+    # which represent the input and output. Since the dataset has no headers, `_c0`, `_c1` are auto-generated
+    # header names that should be used in the `ModelQualityCheckConfig`.
+
+    model_quality_check_config = ModelQualityCheckConfig(
+        baseline_dataset=step_evaluate['prediction_baseline_data'],
+        dataset_format=DatasetFormat.csv(header=True),
+        output_s3_uri=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'modelqualitycheckstep']),
+        problem_type='BinaryClassification',
+        inference_attribute='prediction',
+        ground_truth_attribute='label'
+    )
+
+    model_quality_check_step = QualityCheckStep(
+        name="ModelQualityCheckStep",
+        skip_check=skip_check_model_quality,
+        register_new_baseline=register_new_baseline_model_quality,
+        quality_check_config=model_quality_check_config,
+        check_job_config=check_job_config,
+        supplied_baseline_statistics=supplied_baseline_statistics_model_quality,
+        supplied_baseline_constraints=supplied_baseline_constraints_model_quality,
+        model_package_group_name=model_package_group_name
     )
 
     ### Register the model
