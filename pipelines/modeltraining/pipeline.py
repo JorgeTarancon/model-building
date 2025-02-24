@@ -133,7 +133,6 @@ def get_pipeline(
     sagemaker_project_name=None,
     role=None,
     bucket_name=None,
-    bucket_prefix=None,
     input_s3_url=None,
     model_package_group_name=None,
     pipeline_name_prefix="training-pipeline",
@@ -147,6 +146,8 @@ def get_pipeline(
     Returns:
         an instance of a pipeline
     """
+
+    ### PREPARATION ###
     if input_s3_url is None:
         print("input_s3_url must be provided. Exiting...")
         return None
@@ -167,7 +168,7 @@ def get_pipeline(
     pipeline_name = f"{pipeline_name_prefix}-{sagemaker_project_id}"
     experiment_name = pipeline_name
 
-    output_s3_prefix = f"s3://{bucket_name}/{bucket_prefix}"
+    output_s3_prefix = f"s3://{bucket_name}/{pipeline_name_prefix}"
     # Set the output S3 url for model artifact
     output_s3_url = f"{output_s3_prefix}/output"
 
@@ -200,11 +201,6 @@ def get_pipeline(
             print(f"Use the tracking server ARN:{tracking_server_arn}")
 
     # Parameters for pipeline execution
-
-    processing_instance_count = ParameterInteger(
-        name="ProcessingInstanceCount",
-        default_value=1
-    )
 
     # Set processing instance type
     process_instance_type_param = ParameterString(
@@ -253,35 +249,25 @@ def get_pipeline(
         enable_caching=True,
         expire_after="P30d" # 30-day
     )
+    ### PREPARATION ###
 
-    # Construct the pipeline
-
-    # Preprocessing
-    sklearn_processor = SKLearnProcessor(
-        framework_version="0.23-1",
-        instance_type=processing_instance_type,
-        instance_count=processing_instance_count,
-        base_job_name=f"{pipeline_name}/sklearn-abalone-preprocess",
-        sagemaker_session=session,
-        role=role,
+    ### PREPROCESS ###
+    step_preprocess = step(
+            preprocess, 
+            role=role,
+            instance_type=process_instance_type_param,
+            name="Preprocess",
+            keep_alive_period_in_seconds=3600,
+    )(
+        input_data_s3_path=input_s3_url_param,
+        output_s3_prefix=output_s3_prefix,
+        tracking_server_arn=tracking_server_arn_param,
+        experiment_name=experiment_name,
+        pipeline_run_name=ExecutionVariables.PIPELINE_EXECUTION_ID,
     )
+    ### PREPROCESS ###
 
-    step_args = sklearn_processor.run(
-        outputs=[
-            ProcessingOutput(output_name="train", source="/opt/ml/processing/train"),
-            ProcessingOutput(output_name="validation", source="/opt/ml/processing/validation"),
-            ProcessingOutput(output_name="test", source="/opt/ml/processing/test"),
-        ],
-        code=os.path.join(BASE_DIR, "preprocess.py"),
-        arguments=["--input-data", input_s3_url_param],
-    )
-
-    step_process = ProcessingStep(
-        name="Preprocessing",
-        step_args=step_args,
-    )
-
-    # Create a pipeline object
+    ### BUILD PIPELINE ###
     pipeline = Pipeline(
         name=f"{pipeline_name}",
         parameters=[
@@ -293,8 +279,9 @@ def get_pipeline(
             model_package_group_name_param,
             tracking_server_arn_param,
         ],
-        steps=[step_process],
+        steps=[step_preprocess],
         pipeline_definition_config=PipelineDefinitionConfig(use_custom_job_prefix=True)
     )
+    ### BUILD PIPELINE ###
 
     return pipeline
