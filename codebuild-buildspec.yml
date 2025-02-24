@@ -3,18 +3,34 @@ version: 0.2
 phases:
   install:
     runtime-versions:
-      python: 3.11
+      python: 3.10
     commands:
       - pip install --upgrade --force-reinstall . "awscli>1.20.30"
-  
+      - pip install mlflow==2.13.2 sagemaker-mlflow s3fs xgboost
+    
   build:
     commands:
+      - export SAGEMAKER_USER_CONFIG_OVERRIDE="./config.yaml"
       - export PYTHONUNBUFFERED=TRUE
       - export SAGEMAKER_PROJECT_NAME_ID="${SAGEMAKER_PROJECT_NAME}-${SAGEMAKER_PROJECT_ID}"
       - |
-        run-pipeline --module-name pipelines.abalone.pipeline \
+        run-pipeline --module-name pipelines.modeltraining.pipeline \
           --role-arn $SAGEMAKER_PIPELINE_ROLE_ARN \
-          --tags "[{\"Key\":\"sagemaker:project-name\", \"Value\":\"${SAGEMAKER_PROJECT_NAME}\"}, {\"Key\":\"sagemaker:project-id\", \"Value\":\"${SAGEMAKER_PROJECT_ID}\"}]" \
-          --kwargs "{\"region\":\"${AWS_REGION}\",\"role\":\"${SAGEMAKER_PIPELINE_ROLE_ARN}\",\"default_bucket\":\"${ARTIFACT_BUCKET}\",\"pipeline_name\":\"${SAGEMAKER_PROJECT_NAME_ID}\",\"model_package_group_name\":\"${SAGEMAKER_PROJECT_NAME_ID}\",\"base_job_prefix\":\"${SAGEMAKER_PROJECT_NAME_ID}\",\"sagemaker_project_name\":\"${SAGEMAKER_PROJECT_NAME}\"}"
-      - echo "Create/Update of the SageMaker Pipeline and execution completed."
+          --tags "[{\"Key\":\"sagemaker:project-name\",\"Value\":\"${SAGEMAKER_PROJECT_NAME}\"}, {\"Key\":\"sagemaker:project-id\", \"Value\":\"${SAGEMAKER_PROJECT_ID}\"}]" \
+          --kwargs "{ \
+                \"input_s3_url\":\"s3://train-and-deploy-workshop/input/bank-additional-full.csv\", \
+                \"model_package_group_name\":\"build-deploy-monitor-p-4ciq394xugmz\",\
+                \"pipeline_name_prefix\":\"model-training\",\
+                \"role\":\"arn:aws:iam::090684510598:role/service-role/AmazonSageMaker-ExecutionRole-20250205T134620\",\
+                \"tracking_server_arn\":\"arn:aws:sagemaker:eu-west-1:090684510598:mlflow-tracking-server/mlflow-ts-05-13-00-00\", \
+                \"region\":\"${AWS_REGION}\", \
+                \"sagemaker_project_name\":\"${SAGEMAKER_PROJECT_NAME}\",\
+                \"sagemaker_project_id\":\"${SAGEMAKER_PROJECT_ID}\",\
+                \"process_instance_type\":\"ml.m5.large\", \
+                \"train_instance_type\":\"ml.m5.xlarge\", \
+                \"test_score_threshold\":0.70, \
+                \"bucket_prefix\":\"training-pipeline\",\
+                \"bucket_name\":\"train-and-deploy-workshop\"\
+                    }"
+      - echo "Create/update of the SageMaker Pipeline and a pipeline execution completed."
 
