@@ -87,7 +87,7 @@ from sagemaker.workflow.function_step import step
 from sagemaker.workflow.step_outputs import get_step
 from sagemaker.model_monitor import DatasetFormat, model_monitoring
 
-from pipelines.modeltraining.old_preprocess import preprocess
+from pipelines.modeltraining.preprocess import preprocess
 from pipelines.modeltraining.evaluate import evaluate
 from pipelines.modeltraining.register import register
 
