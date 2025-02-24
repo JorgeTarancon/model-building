@@ -91,26 +91,26 @@ def main():  # pragma: no cover
         # the baselines calculated will be registered as DriftCheckBaselines.
         # After the first execution, the default parameters can be used.
 
-        #execution = pipeline.start(
-        #    parameters=dict(
-        #        SkipDataQualityCheck=True,  # skip drift check for data quality
-        #        RegisterNewDataQualityBaseline=True,  # register newly calculated baseline for data quality
-        #        SkipDataBiasCheck=True,  # skip drift check for data bias
-        #        RegisterNewDataBiasBaseline=True,  # register newly calculated baseline for data bias
-        #        SkipModelQualityCheck=True,  # skip drift check for model quality
-        #        RegisterNewModelQualityBaseline=True,  # register newly calculated baseline for model quality
-        #        SkipModelBiasCheck=True,  # skip drift check for model bias
-        #        RegisterNewModelBiasBaseline=True,  # register newly calculated baseline for model bias
-        #        SkipModelExplainabilityCheck=True,  # skip drift check for model explainability
-        #        RegisterNewModelExplainabilityBaseline=True  # register newly calculated baseline for explainability
-        #    )
-        #)
+        execution = pipeline.start(
+            parameters=dict(
+                SkipDataQualityCheck=True,  # skip drift check for data quality
+                RegisterNewDataQualityBaseline=True,  # register newly calculated baseline for data quality
+                SkipDataBiasCheck=True,  # skip drift check for data bias
+                RegisterNewDataBiasBaseline=True,  # register newly calculated baseline for data bias
+                SkipModelQualityCheck=True,  # skip drift check for model quality
+                RegisterNewModelQualityBaseline=True,  # register newly calculated baseline for model quality
+                SkipModelBiasCheck=True,  # skip drift check for model bias
+                RegisterNewModelBiasBaseline=True,  # register newly calculated baseline for model bias
+                SkipModelExplainabilityCheck=True,  # skip drift check for model explainability
+                RegisterNewModelExplainabilityBaseline=True  # register newly calculated baseline for explainability
+            )
+        )
 
         # Update above code as below to use default parameter values for future pipeline executions
         # after approving the model registered by the first pipeline execution in Model Registry
         # so that all the checks are enabled and previous baselines are retained.
 
-        execution = pipeline.start()
+        #execution = pipeline.start()
 
         print(f"\n###### Execution started with PipelineExecutionArn: {execution.arn}")
 

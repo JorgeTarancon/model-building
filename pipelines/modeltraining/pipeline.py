@@ -83,6 +83,8 @@ from pipelines.modeltraining.preprocess import preprocess
 #from pipelines.modeltraining.evaluate import evaluate
 #from pipelines.modeltraining.register import register
 
+BASE_DIR = os.path.dirname(os.path.realpath(__file__))
+
 def get_sagemaker_client(region):
      return boto3.Session(region_name=region).client("sagemaker")
 
@@ -135,8 +137,8 @@ def get_pipeline(
     input_s3_url=None,
     model_package_group_name=None,
     pipeline_name_prefix="training-pipeline",
-    process_instance_type="ml.m5.large",
-    train_instance_type="ml.m5.xlarge",
+    processing_instance_type="ml.m5.large",
+    training_instance_type="ml.m5.xlarge",
     test_score_threshold=0.70,
     tracking_server_arn=None,
 ):
@@ -168,8 +170,6 @@ def get_pipeline(
     output_s3_prefix = f"s3://{bucket_name}/{bucket_prefix}"
     # Set the output S3 url for model artifact
     output_s3_url = f"{output_s3_prefix}/output"
-    # Set the output S3 url for feature store query results
-    output_query_location = f'{output_s3_prefix}/offline-store/query_results'
 
     # Set the output S3 urls for processed data
     train_s3_url = f"{output_s3_prefix}/train"
@@ -201,16 +201,21 @@ def get_pipeline(
 
     # Parameters for pipeline execution
 
+    processing_instance_count = ParameterInteger(
+        name="ProcessingInstanceCount",
+        default_value=1
+    )
+
     # Set processing instance type
     process_instance_type_param = ParameterString(
         name="ProcessingInstanceType",
-        default_value=process_instance_type,
+        default_value=processing_instance_type,
     )
 
     # Set training instance type
     train_instance_type_param = ParameterString(
         name="TrainingInstanceType",
-        default_value=train_instance_type,
+        default_value=training_instance_type,
     )
 
     # Set model approval param
@@ -228,7 +233,7 @@ def get_pipeline(
     # S3 url for the input dataset
     input_s3_url_param = ParameterString(
         name="InputDataUrl",
-        default_value=input_s3_url if input_s3_url else "None",
+        default_value=input_s3_url if input_s3_url else None,
     )
 
     # Model package group name
@@ -251,19 +256,29 @@ def get_pipeline(
 
     # Construct the pipeline
 
-    # Get datasets
-    step_get_datasets = step(
-            preprocess, 
-            role=role,
-            instance_type=process_instance_type_param,
-            name=f"preprocess",
-            keep_alive_period_in_seconds=3600,
-    )(
-        input_data_s3_path=input_s3_url_param,
-        output_s3_prefix=output_s3_prefix,
-        tracking_server_arn=tracking_server_arn_param,
-        experiment_name=experiment_name,
-        pipeline_run_name=ExecutionVariables.PIPELINE_EXECUTION_ID,
+    # Preprocessing
+    sklearn_processor = SKLearnProcessor(
+        framework_version="0.23-1",
+        instance_type=processing_instance_type,
+        instance_count=processing_instance_count,
+        base_job_name=f"{pipeline_name}/sklearn-abalone-preprocess",
+        sagemaker_session=session,
+        role=role,
+    )
+
+    step_args = sklearn_processor.run(
+        outputs=[
+            ProcessingOutput(output_name="train", source="/opt/ml/processing/train"),
+            ProcessingOutput(output_name="validation", source="/opt/ml/processing/validation"),
+            ProcessingOutput(output_name="test", source="/opt/ml/processing/test"),
+        ],
+        code=os.path.join(BASE_DIR, "preprocess.py"),
+        arguments=["--input-data", input_s3_url_param],
+    )
+
+    step_process = ProcessingStep(
+        name="Preprocessing",
+        step_args=step_args,
     )
 
     # Create a pipeline object
@@ -278,7 +293,7 @@ def get_pipeline(
             model_package_group_name_param,
             tracking_server_arn_param,
         ],
-        steps=[step_get_datasets],
+        steps=[step_process],
         pipeline_definition_config=PipelineDefinitionConfig(use_custom_job_prefix=True)
     )
 
