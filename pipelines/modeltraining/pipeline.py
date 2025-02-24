@@ -182,6 +182,7 @@ def get_pipeline(
     Returns:
         an instance of a pipeline
     """
+    ### PIPELINE PREPARATION ###
     if input_s3_url is None:
         print("input_s3_url must be provided. Exiting...")
         return None
@@ -247,7 +248,9 @@ def get_pipeline(
     skip_check_model_explainability = ParameterBoolean(name="SkipModelExplainabilityCheck", default_value=False)
     register_new_baseline_model_explainability = ParameterBoolean(name="RegisterNewModelExplainabilityBaseline", default_value=False)
     supplied_baseline_constraints_model_explainability = ParameterString(name="ModelExplainabilitySuppliedBaselineConstraints", default_value='')
+    ### PIPELINE PREPARATION ###
 
+    ### PREPROCESSING ###
     # processing step for feature engineering
     sklearn_processor = SKLearnProcessor(
         framework_version="0.23-1",
@@ -275,7 +278,9 @@ def get_pipeline(
         name="Preprocess",
         step_args=step_args,
     )
+    ### PREPROCESSING ###
 
+    ### PIPELINE DEFINITION ###
     # pipeline instance
     pipeline = Pipeline(
         name=pipeline_name,
@@ -311,4 +316,6 @@ def get_pipeline(
         steps=[step_process],
         sagemaker_session=pipeline_session,
     )
+    ### PIPELINE DEFINITION ###
+
     return pipeline
