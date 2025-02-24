@@ -41,6 +41,7 @@ from sagemaker.workflow.quality_check_step import (
     QualityCheckStep,
 )
 from sagemaker.workflow.clarify_check_step import (
+    DataBiasCheckConfig,
     ModelBiasCheckConfig,
     ClarifyCheckStep,
     ModelExplainabilityCheckConfig
@@ -78,6 +79,11 @@ from sagemaker.image_uris import retrieve
 from sagemaker.workflow.function_step import step
 from sagemaker.workflow.step_outputs import get_step
 from sagemaker.model_monitor import DatasetFormat, model_monitoring
+from sagemaker.clarify import (
+    BiasConfig,
+    DataConfig,
+    ModelConfig
+)
 
 from pipelines.modeltraining.preprocess import preprocess
 #from pipelines.modeltraining.evaluate import evaluate
@@ -294,6 +300,85 @@ def get_pipeline(
     )
     ### PREPROCESS ###
 
+    ### DATA QUALITY ###
+    # `CheckJobConfig` is a helper function that's used to define the job configurations used by the `QualityCheckStep`.
+    # By separating the job configuration from the step parameters, the same `CheckJobConfig` can be used across multiple
+    # steps for quality checks.
+    # The `DataQualityCheckConfig` is used to define the Quality Check job by specifying the dataset used to calculate
+    # the baseline, in this case, the training dataset from the data preprocessing step, the dataset format, in this case,
+    # a csv file with no headers, and the output path for the results of the data quality check.
+
+    check_job_config = CheckJobConfig(
+        role=role,
+        instance_count=1,
+        instance_type="ml.c5.xlarge",
+        volume_size_in_gb=120,
+        sagemaker_session=session,
+    )
+
+    data_quality_check_config = DataQualityCheckConfig(
+        baseline_dataset=step_preprocess["train_data"],
+        dataset_format=DatasetFormat.csv(header=False, output_columns_position="START"),
+        output_s3_uri=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'dataqualitycheckstep'])
+    )
+
+    data_quality_check_step = QualityCheckStep(
+        name="DataQualityCheckStep",
+        skip_check=skip_check_data_quality,
+        register_new_baseline=register_new_baseline_data_quality,
+        quality_check_config=data_quality_check_config,
+        check_job_config=check_job_config,
+        supplied_baseline_statistics=supplied_baseline_statistics_data_quality,
+        supplied_baseline_constraints=supplied_baseline_constraints_data_quality,
+        model_package_group_name=model_package_group_name
+    )
+
+    ### DATA QUALITY ###
+
+    ### DATA BIAS ###
+    # The job configuration from the previous step is used here and the `DataConfig` class is used to define how
+    # the `ClarifyCheckStep` should compute the data bias. The training dataset is used again for the bias evaluation,
+    # the column representing the label is specified through the `label` parameter, and a `BiasConfig` is provided.
+
+    # In the `BiasConfig`, we specify a facet name (the column that is the focal point of the bias calculation),
+    # the value of the facet that determines the range of values it can hold, and the threshold value for the label.
+    # More details on `BiasConfig` can be found at
+    # https://sagemaker.readthedocs.io/en/stable/api/training/processing.html#sagemaker.clarify.BiasConfig
+
+    data_bias_analysis_cfg_output_path = f"s3://{bucket_name}/{pipeline_name_prefix}/databiascheckstep/analysis_cfg"
+
+    data_bias_data_config = DataConfig(
+        s3_data_input_path=step_preprocess["train_data"],
+        s3_output_path=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'databiascheckstep']),
+        label=0,
+        dataset_type="text/csv",
+        s3_analysis_config_output_path=data_bias_analysis_cfg_output_path,
+    )
+
+    # We are using this bias config to configure clarify to detect bias based on the first feature in the featurized vector for Sex
+    data_bias_config = BiasConfig(
+        label_values_or_threshold=[15.0], facet_name=[8], facet_values_or_threshold=[[0.5]]
+    )
+
+    data_bias_check_config = DataBiasCheckConfig(
+        data_config=data_bias_data_config,
+        data_bias_config=data_bias_config,
+    )
+
+    data_bias_check_step = ClarifyCheckStep(
+        name="DataBiasCheckStep",
+        clarify_check_config=data_bias_check_config,
+        check_job_config=check_job_config,
+        skip_check=skip_check_data_bias,
+        register_new_baseline=register_new_baseline_data_bias,
+        model_package_group_name=model_package_group_name
+    )
+
+    ### DATA BIAS ###
+
+    ### MODEL TRAINING ###
+    ### MODEL TRAINING ###
+
     ### BUILD PIPELINE ###
     pipeline = Pipeline(
         name=f"{pipeline_name}",
@@ -323,7 +408,9 @@ def get_pipeline(
             register_new_baseline_model_explainability,
             supplied_baseline_constraints_model_explainability
         ],
-        steps=[step_preprocess],
+        steps=[step_preprocess,
+               data_quality_check_step,
+               data_bias_check_step],
         pipeline_definition_config=PipelineDefinitionConfig(use_custom_job_prefix=True)
     )
     ### BUILD PIPELINE ###
