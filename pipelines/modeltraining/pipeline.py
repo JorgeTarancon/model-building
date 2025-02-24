@@ -679,7 +679,16 @@ def get_pipeline(
             register_new_baseline_model_explainability,
             supplied_baseline_constraints_model_explainability
         ],
-        steps=[step_conditional_register],
+        steps=[step_get_datasets,
+               data_quality_check_step,
+               data_bias_check_step,
+               step_train,
+               step_create_model,
+               model_bias_check_step,
+               model_explainability_check_step,
+               step_evaluate,
+               model_quality_check_step,
+               step_conditional_register],
         pipeline_definition_config=PipelineDefinitionConfig(use_custom_job_prefix=True)
     )
 
