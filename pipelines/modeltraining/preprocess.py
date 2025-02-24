@@ -91,6 +91,7 @@ def preprocess(
         validation_data_output_s3_path = f"{output_s3_prefix}/validation/validation.csv"
         test_x_data_output_s3_path = f"{output_s3_prefix}/test/test_x.csv"
         test_y_data_output_s3_path = f"{output_s3_prefix}/test/test_y.csv"
+        test_data_output_s3_path = f"{output_s3_prefix}/test/test.csv"
         baseline_data_output_s3_path = f"{output_s3_prefix}/baseline/baseline.csv"
         
         # Upload datasets to S3
@@ -98,6 +99,7 @@ def preprocess(
         validation_data.to_csv(validation_data_output_s3_path, index=False, header=False)
         test_data[target_col].to_csv(test_y_data_output_s3_path, index=False, header=False)
         test_data.drop([target_col], axis=1).to_csv(test_x_data_output_s3_path, index=False, header=False)
+        test_data.to_csv(test_data_output_s3_path, index=False, header=False)
         
         # We need the baseline dataset for model monitoring
         df_model_data.drop([target_col], axis=1).to_csv(baseline_data_output_s3_path, index=False, header=False)
@@ -109,6 +111,7 @@ def preprocess(
             "validation_data":validation_data_output_s3_path,
             "test_x_data":test_x_data_output_s3_path,
             "test_y_data":test_y_data_output_s3_path,
+            "test_data":test_data_output_s3_path,
             "baseline_data":baseline_data_output_s3_path,
             "experiment_name":experiment.name,
             "pipeline_run_id":pipeline_run.info.run_id if pipeline_run else ''

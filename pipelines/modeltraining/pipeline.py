@@ -19,14 +19,15 @@ from sagemaker.processing import (
     ProcessingOutput,
     ScriptProcessor
 )
-from sagemaker.inputs import TrainingInput
+from sagemaker.inputs import TrainingInput, TransformInput
 
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.steps import (
     ProcessingStep,
     TrainingStep,
     CreateModelStep,
-    CacheConfig
+    CacheConfig,
+    TransformStep
 )
 from sagemaker.workflow.check_job_config import CheckJobConfig
 from sagemaker.workflow.parameters import (
@@ -43,10 +44,13 @@ from sagemaker.workflow.quality_check_step import (
 from sagemaker.workflow.clarify_check_step import (
     DataBiasCheckConfig,
     ModelBiasCheckConfig,
+    ModelPredictedLabelConfig,
     ClarifyCheckStep,
-    ModelExplainabilityCheckConfig
+    ModelExplainabilityCheckConfig,
+    SHAPConfig
 )
 from sagemaker import Model
+from sagemaker.transformer import Transformer
 from sagemaker.inputs import CreateModelInput
 from sagemaker.workflow.model_step import ModelStep
 from sagemaker.workflow.fail_step import FailStep
@@ -345,17 +349,15 @@ def get_pipeline(
     # More details on `BiasConfig` can be found at
     # https://sagemaker.readthedocs.io/en/stable/api/training/processing.html#sagemaker.clarify.BiasConfig
 
-    data_bias_analysis_cfg_output_path = f"s3://{bucket_name}/{pipeline_name_prefix}/databiascheckstep/analysis_cfg"
-
     data_bias_data_config = DataConfig(
         s3_data_input_path=step_preprocess["train_data"],
         s3_output_path=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'databiascheckstep']),
         label=0,
         dataset_type="text/csv",
-        s3_analysis_config_output_path=data_bias_analysis_cfg_output_path,
+        s3_analysis_config_output_path=f"s3://{bucket_name}/{pipeline_name_prefix}/databiascheckstep/analysis_cfg",
     )
 
-    # We are using this bias config to configure clarify to detect bias based on the first feature in the featurized vector for Sex
+    # We are using this bias config to configure clarify to detect bias based on the first feature in the featurized vector
     data_bias_config = BiasConfig(
         label_values_or_threshold=[15.0], facet_name=[8], facet_values_or_threshold=[[0.5]]
     )
@@ -377,7 +379,206 @@ def get_pipeline(
     ### DATA BIAS ###
 
     ### MODEL TRAINING ###
+    estimator = sagemaker.estimator.Estimator(
+        image_uri=xgboost_image_uri,
+        role=role, 
+        instance_type=train_instance_type_param,
+        instance_count=1,
+        output_path=output_s3_url,
+        sagemaker_session=session,
+        base_job_name=f"{pipeline_name}-train"
+    )
+
+    # Define algorithm hyperparameters
+    estimator.set_hyperparameters(
+        num_round=100, # the number of rounds to run the training
+        max_depth=3, # maximum depth of a tree
+        eta=0.5, # step size shrinkage used in updates to prevent overfitting
+        alpha=2.5, # L1 regularization term on weights
+        objective="binary:logistic",
+        eval_metric="auc", # evaluation metrics for validation data
+        subsample=0.8, # subsample ratio of the training instance
+        colsample_bytree=0.8, # subsample ratio of columns when constructing each tree
+        min_child_weight=3, # minimum sum of instance weight (hessian) needed in a child
+        early_stopping_rounds=10, # the model trains until the validation score stops improving
+        verbosity=1, # verbosity of printing messages
+    )
+
+    # train step
+    step_train = TrainingStep(
+        name="Train",
+        step_args=estimator.fit(
+            {
+                "train": TrainingInput(
+                    step_preprocess['train_data'],
+                    content_type="text/csv",
+                ),
+                "validation": TrainingInput(
+                    step_preprocess['validation_data'],
+                    content_type="text/csv",
+                ),
+            }
+        ),
+        depends_on=["DataQualityCheckStep", "DataBiasCheckStep"],
+        cache_config=cache_config,
+    )
     ### MODEL TRAINING ###
+
+    ### MODEL QUALITY ###
+    # In this `QualityCheckStep` we calculate the baselines for statistics and constraints using the
+    # predictions that the model generates from the test dataset (output from the TransformStep). We define
+    # the problem type as 'Regression' in the `ModelQualityCheckConfig` along with specifying the columns
+    # which represent the input and output. Since the dataset has no headers, `_c0`, `_c1` are auto-generated
+    # header names that should be used in the `ModelQualityCheckConfig`.
+    model = Model(
+        image_uri=xgboost_image_uri,
+        model_data=step_train.properties.ModelArtifacts.S3ModelArtifacts,
+        sagemaker_session=session,
+        role=role,
+    )
+
+    step_create_model = ModelStep(
+        name="CreateModel",
+        step_args=model.create(
+                    instance_type="ml.m5.large",
+                    accelerator_type="ml.eia1.medium",
+                    )
+    )
+
+    transformer = Transformer(
+        model_name=step_create_model.properties.ModelName,
+        instance_type="ml.m5.xlarge",
+        instance_count=1,
+        accept="text/csv",
+        assemble_with="Line",
+        output_path=f"s3://{bucket_name}/Transform",
+        sagemaker_session=session,
+    )
+
+    # The output of the transform step combines the prediction and the input label.
+    # The output format is `prediction, original label`
+    step_transform = TransformStep(
+        name="Transform",
+        step_args=transformer.transform(
+            data=TransformInput(
+                data=step_preprocess["test_data"]).data,
+            input_filter="$[:-1]",
+            join_source="Input",
+            output_filter="$[-2:]",
+            content_type="text/csv",
+            split_type="Line",
+            )
+    )
+
+    model_quality_check_config = ModelQualityCheckConfig(
+        baseline_dataset=step_transform.properties.TransformOutput.S3OutputPath,
+        dataset_format=DatasetFormat.csv(header=False),
+        output_s3_uri=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'modelqualitycheckstep']),
+        problem_type='BinaryClassification',
+        inference_attribute='_c0',
+        ground_truth_attribute='_c1'
+    )
+
+    model_quality_check_step = QualityCheckStep(
+        name="ModelQualityCheckStep",
+        skip_check=skip_check_model_quality,
+        register_new_baseline=register_new_baseline_model_quality,
+        quality_check_config=model_quality_check_config,
+        check_job_config=check_job_config,
+        supplied_baseline_statistics=supplied_baseline_statistics_model_quality,
+        supplied_baseline_constraints=supplied_baseline_constraints_model_quality,
+        model_package_group_name=model_package_group_name
+    )
+    ### MODEL QUALITY ###
+
+    ### MODEL BIAS ###
+    # Similar to the Data Bias check step, a `BiasConfig` is defined and Clarify is used to calculate
+    # the model bias using the training dataset and the model.
+
+    model_bias_data_config = DataConfig(
+        s3_data_input_path=step_preprocess["train_data"],
+        s3_output_path=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'modelbiascheckstep']),
+        s3_analysis_config_output_path=f"s3://{bucket_name}/{pipeline_name_prefix}/modelbiascheckstep/analysis_cfg",
+        label=0,
+        dataset_type="text/csv",
+    )
+
+    model_config = ModelConfig(
+        model_name=step_create_model.properties.ModelName,
+        instance_count=1,
+        instance_type='ml.m5.large',
+    )
+
+    # We are using this bias config to configure clarify to detect bias based on the first feature in the featurized vector for Sex
+    model_bias_config = BiasConfig(
+        label_values_or_threshold=[15.0], facet_name=[8], facet_values_or_threshold=[[0.5]]
+    )
+
+    model_bias_check_config = ModelBiasCheckConfig(
+        data_config=model_bias_data_config,
+        data_bias_config=model_bias_config,
+        model_config=model_config,
+        model_predicted_label_config=ModelPredictedLabelConfig()
+    )
+
+    model_bias_check_step = ClarifyCheckStep(
+        name="ModelBiasCheckStep",
+        clarify_check_config=model_bias_check_config,
+        check_job_config=check_job_config,
+        skip_check=skip_check_model_bias,
+        register_new_baseline=register_new_baseline_model_bias,
+        supplied_baseline_constraints=supplied_baseline_constraints_model_bias,
+        model_package_group_name=model_package_group_name
+    )
+    ### MODEL BIAS ###
+
+    ### MODEL EXPLAINABILITY ###
+    # SageMaker Clarify uses a model-agnostic feature attribution approach, which you can used to understand
+    # why a model made a prediction after training and to provide per-instance explanation during inference. The implementation
+    # includes a scalable and efficient implementation of SHAP, based on the concept of a Shapley value from the field of
+    # cooperative game theory that assigns each feature an importance value for a particular prediction.
+
+    # For Model Explainability, Clarify requires an explainability configuration to be provided. In this example, we
+    # use `SHAPConfig`. For more information of `explainability_config`, visit the Clarify documentation at
+    # https://docs.aws.amazon.com/sagemaker/latest/dg/clarify-model-explainability.html.
+
+    model_explainability_analysis_cfg_output_path = "s3://{}/{}/{}/{}".format(
+        bucket_name,
+        pipeline_name_prefix,
+        "modelexplainabilitycheckstep",
+        "analysis_cfg"
+    )
+
+    model_explainability_data_config = DataConfig(
+        s3_data_input_path=step_preprocess["train_data"],
+        s3_output_path=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'modelexplainabilitycheckstep']),
+        s3_analysis_config_output_path=model_explainability_analysis_cfg_output_path,
+        label=0,
+        dataset_type="text/csv",
+    )
+    shap_config = SHAPConfig(
+        seed=123,
+        num_samples=10
+    )
+    model_explainability_check_config = ModelExplainabilityCheckConfig(
+        data_config=model_explainability_data_config,
+        model_config=model_config,
+        explainability_config=shap_config,
+    )
+    model_explainability_check_step = ClarifyCheckStep(
+        name="ModelExplainabilityCheckStep",
+        clarify_check_config=model_explainability_check_config,
+        check_job_config=check_job_config,
+        skip_check=skip_check_model_explainability,
+        register_new_baseline=register_new_baseline_model_explainability,
+        supplied_baseline_constraints=supplied_baseline_constraints_model_explainability,
+        model_package_group_name=model_package_group_name
+    )
+    ### MODEL EXPLAINABILITY ###
+
+    ### EVALUATION ###
+    
+    ### EVALUATION ###
 
     ### BUILD PIPELINE ###
     pipeline = Pipeline(
@@ -410,7 +611,13 @@ def get_pipeline(
         ],
         steps=[step_preprocess,
                data_quality_check_step,
-               data_bias_check_step],
+               data_bias_check_step,
+               step_train,
+               step_create_model,
+               step_transform,
+               model_quality_check_step,
+               model_bias_check_step,
+               model_explainability_check_step],
         pipeline_definition_config=PipelineDefinitionConfig(use_custom_job_prefix=True)
     )
     ### BUILD PIPELINE ###
