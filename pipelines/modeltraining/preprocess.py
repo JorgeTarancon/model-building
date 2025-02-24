@@ -1,50 +1,86 @@
-import pandas as pd
+"""Feature engineers the abalone dataset."""
+import argparse
+import logging
+import os
+import pathlib
+import requests
+import tempfile
+from time import gmtime, strftime
+
+import boto3
 import numpy as np
+import pandas as pd
+
 import mlflow
 from mlflow.data.pandas_dataset import PandasDataset
-from time import gmtime, strftime
+
 from sklearn.preprocessing import MinMaxScaler, LabelEncoder
 
-def preprocess(
-    input_data_s3_path,
-    output_s3_prefix,
-    tracking_server_arn,
-    experiment_name=None,
-    pipeline_run_name=None,
-    run_id=None,
-):
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler())
+
+
+if __name__ == "__main__":
+    logger.debug("Starting preprocessing.")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input-data", type=str, required=True)
+    parser.add_argument("--tracking-server-arn", type=str, required=True)
+    parser.add_argument("--experiment-name", type=str, required=True)
+    parser.add_argument("--pipeline-run-name", type=str, required=True)
+    parser.add_argument("--run-id", type=str, required=False)
+    parser.add_argument("--output-s3-prefix", type=str, required=False)
+    args = parser.parse_args()
+
+    input_data = args.input_data
+    tracking_server_arn = args.tracking_server_arn
+    experiment_name = args.experiment_name
+    pipeline_run_name = args.pipeline_run_name
+    run_id = args.run_id
+    output_s3_prefix = args.output_s3_prefix
+
+    base_dir = "/opt/ml/processing"
+    pathlib.Path(f"{base_dir}/data").mkdir(parents=True, exist_ok=True)
+    bucket = input_data.split("/")[2]
+    key = "/".join(input_data.split("/")[3:])
+
+    logger.info("Downloading data from bucket: %s, key: %s", bucket, key)
+    fn = f"{base_dir}/data/dataset.csv"
+    s3 = boto3.resource("s3")
+    s3.Bucket(bucket).download_file(key, fn)
     try:
         suffix = strftime('%d-%H-%M-%S', gmtime())
         mlflow.set_tracking_uri(tracking_server_arn)
-        experiment = mlflow.set_experiment(experiment_name=experiment_name if experiment_name else f"{preprocess.__name__ }-{suffix}")
-        pipeline_run = mlflow.start_run(run_name=pipeline_run_name) if pipeline_run_name else None            
+        experiment = mlflow.set_experiment(experiment_name=experiment_name)
+        pipeline_run = mlflow.start_run(run_name=pipeline_run_name)
         run = mlflow.start_run(run_id=run_id) if run_id else mlflow.start_run(run_name=f"processing-{suffix}", nested=True)
 
         # Load data
-        df_data = pd.read_csv(input_data_s3_path, sep=";")
-
-        input_dataset = mlflow.data.from_pandas(df_data, source=input_data_s3_path)
-        mlflow.log_input(input_dataset, context="raw_input")
+        logger.debug("Reading downloaded data.")
+        df_data = pd.read_csv(input_data, sep=";")
         
+        input_dataset = mlflow.data.from_pandas(df_data, source=input_data)
+        mlflow.log_input(input_dataset, context="raw_input")
+            
         target_col = "y"
-    
+
         # Indicator variable to capture when pdays takes a value of 999
         df_data["no_previous_contact"] = np.where(df_data["pdays"] == 999, 1, 0)
-    
+
         # Indicator for individuals not actively employed
         df_data["not_working"] = np.where(
             np.in1d(df_data["job"], ["student", "retired", "unemployed"]), 1, 0
         )
-    
+
         # remove data not used for the modelling
         df_model_data = df_data.drop(
             ["duration", "emp.var.rate", "cons.price.idx", "cons.conf.idx", "euribor3m", "nr.employed"],
             axis=1,
         )
-    
+
         bins = [18, 30, 40, 50, 60, 70, 90]
         labels = ['18-29', '30-39', '40-49', '50-59', '60-69', '70-plus']
-    
+
         df_model_data['age_range'] = pd.cut(df_model_data.age, bins, labels=labels, include_lowest=True)
         df_model_data = pd.concat([df_model_data, pd.get_dummies(df_model_data['age_range'], prefix='age', dtype=int)], axis=1)
         df_model_data.drop('age', axis=1, inplace=True)
@@ -56,7 +92,7 @@ def preprocess(
 
         # Convert categorical variables to sets of indicators
         df_model_data = pd.get_dummies(df_model_data, dtype=int)  
-    
+
         # Replace "y_no" and "y_yes" with a single label column, and bring it to the front:
         df_model_data = pd.concat(
             [
@@ -68,15 +104,15 @@ def preprocess(
 
         model_dataset = mlflow.data.from_pandas(df_data)
         mlflow.log_input(model_dataset, context="model_dataset")
-        
+
         # Shuffle and split the dataset
         train_data, validation_data, test_data = np.split(
             df_model_data.sample(frac=1, random_state=1729),
             [int(0.7 * len(df_model_data)), int(0.9 * len(df_model_data))],
         )
-    
+
         print(f"## Data split > train:{train_data.shape} | validation:{validation_data.shape} | test:{test_data.shape}")
-    
+
         mlflow.log_params(
             {
                 "full_dataset": df_model_data.shape,
@@ -86,33 +122,25 @@ def preprocess(
             }
         )
 
-        # Set S3 upload path
-        train_data_output_s3_path = f"{output_s3_prefix}/train/train.csv"
-        validation_data_output_s3_path = f"{output_s3_prefix}/validation/validation.csv"
-        test_x_data_output_s3_path = f"{output_s3_prefix}/test/test_x.csv"
-        test_y_data_output_s3_path = f"{output_s3_prefix}/test/test_y.csv"
-        baseline_data_output_s3_path = f"{output_s3_prefix}/baseline/baseline.csv"
+        df_train = pd.DataFrame(train_data)
+        df_validation = pd.DataFrame(validation_data)
+        df_test = pd.DataFrame(test_data)
+        df_baseline = df_model_data.drop([target_col], axis=1)
+
+        logger.info("Writing out datasets to %s.", base_dir)
+        df_train.to_csv(f"{base_dir}/train/train.csv", header=False, index=False)
+        df_validation.to_csv(
+            f"{base_dir}/validation/validation.csv", header=False, index=False
+        )
+        df_test.to_csv(f"{base_dir}/test/test.csv", header=False, index=False)
+        df_baseline.to_csv(f"{base_dir}/baseline/baseline.csv", header=False, index=False)
         
-        # Upload datasets to S3
-        train_data.to_csv(train_data_output_s3_path, index=False, header=False)
-        validation_data.to_csv(validation_data_output_s3_path, index=False, header=False)
-        test_data[target_col].to_csv(test_y_data_output_s3_path, index=False, header=False)
-        test_data.drop([target_col], axis=1).to_csv(test_x_data_output_s3_path, index=False, header=False)
-        
-        # We need the baseline dataset for model monitoring
-        df_model_data.drop([target_col], axis=1).to_csv(baseline_data_output_s3_path, index=False, header=False)
-           
-        print("## Data processing complete. Exiting.")
-        
-        return {
-            "train_data":train_data_output_s3_path,
-            "validation_data":validation_data_output_s3_path,
-            "test_x_data":test_x_data_output_s3_path,
-            "test_y_data":test_y_data_output_s3_path,
-            "baseline_data":baseline_data_output_s3_path,
-            "experiment_name":experiment.name,
-            "pipeline_run_id":pipeline_run.info.run_id if pipeline_run else ''
-        }
+
+        logger.info("Writing out datasets to %s.", output_s3_prefix)
+        train_data.to_csv(f"{output_s3_prefix}/train/train.csv", index=False, header=False)
+        validation_data.to_csv(f"{output_s3_prefix}/validation/validation.csv", index=False, header=False)
+        test_data.to_csv(f"{output_s3_prefix}/test/test.csv", index=False, header=False)
+        df_baseline.to_csv(f"{output_s3_prefix}/baseline/baseline.csv", index=False, header=False)
 
     except Exception as e:
         print(f"Exception in processing script: {e}")
