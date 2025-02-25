@@ -435,7 +435,7 @@ def get_pipeline(
         model_data=step_train.properties.ModelArtifacts.S3ModelArtifacts,
         sagemaker_session=session,
         role=role,
-        name=f"{pipeline_name}-model",
+        name=f"{pipeline_name}-model",!!!!!!!!!!!!
     )
 
     step_create_model = ModelStep(
@@ -461,11 +461,10 @@ def get_pipeline(
     step_transform = TransformStep(
         name="Transform",
         step_args=transformer.transform(
-            data=TransformInput(
-                data=step_preprocess["test_data"]).data,
+            data=TransformInput(data=step_preprocess["test_data"]).data,
             input_filter="$[:-1]",
             join_source="Input",
-            output_filter="$[-2:]",
+            output_filter="$[-2,-1]",
             content_type="text/csv",
             split_type="Line",
             )
@@ -580,6 +579,9 @@ def get_pipeline(
     ### EVALUATION ###
 
     ### EVALUATION ###
+
+    ### MODEL REGISTER ###
+    ### MODEL REGISTER ###
 
     ### BUILD PIPELINE ###
     pipeline = Pipeline(
