@@ -100,7 +100,6 @@ def preprocess(
         test_data[target_col].to_csv(test_y_data_output_s3_path, index=False, header=False)
         test_data.drop([target_col], axis=1).to_csv(test_x_data_output_s3_path, index=False, header=False)
         test_data.to_csv(test_data_output_s3_path, index=False, header=False)
-        test_data.to_csv(f"{output_s3_prefix}/test/test_delete.csv", index=False, header=True)
         
         # We need the baseline dataset for model monitoring
         df_model_data.drop([target_col], axis=1).to_csv(baseline_data_output_s3_path, index=False, header=False)

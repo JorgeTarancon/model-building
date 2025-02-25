@@ -128,7 +128,23 @@ def register(
                 content_type="application/json",
             ) if drift_model_explainability_check_config else None
         )
-    
+
+        # The two parameters in `RegisterModel` that hold the metrics calculated by the `ClarifyCheckStep` and
+        # `QualityCheckStep` are `model_metrics` and `drift_check_baselines`.
+
+        # `drift_check_baselines` - these are the baseline files that will be used for drift checks in
+        # `QualityCheckStep` or `ClarifyCheckStep` and model monitoring jobs that are set up on endpoints hosting this model.
+        # `model_metrics` - these should be the latest baslines calculated in the pipeline run. This can be set
+        # using the step property `CalculatedBaseline`
+
+        # The intention behind these parameters is to give users a way to configure the baselines associated with
+        # a model so they can be used in drift checks or model monitoring jobs. Each time a pipeline is executed, users can
+        # choose to update the `drift_check_baselines` with newly calculated baselines. The `model_metrics` can be used to
+        # register the newly calculated baslines or any other metrics associated with the model.
+
+        # Every time a baseline is calculated, it is not necessary that the baselines used for drift checks are updated to
+        # the newly calculated baselines. In some cases, users may retain an older version of the baseline file to be used
+        # for drift checks and not register new baselines that are calculated in the Pipeline run.
         model_package = estimator.register(
             content_types=["text/csv"],
             response_types=["text/csv"],

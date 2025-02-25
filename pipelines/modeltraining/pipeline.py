@@ -90,8 +90,8 @@ from sagemaker.clarify import (
 )
 
 from pipelines.modeltraining.preprocess import preprocess
-#from pipelines.modeltraining.evaluate import evaluate
-#from pipelines.modeltraining.register import register
+from pipelines.modeltraining.evaluate import evaluate
+from pipelines.modeltraining.register import register
 
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -462,9 +462,9 @@ def get_pipeline(
         name="Transform",
         step_args=transformer.transform(
             data=TransformInput(data=step_preprocess["test_data"]).data,
-            input_filter="$[:-1]",
+            input_filter="$[1:]",
             join_source="Input",
-            output_filter="$[-2,-1]",
+            output_filter="$[0,-1]",
             content_type="text/csv",
             split_type="Line",
             )
@@ -577,10 +577,75 @@ def get_pipeline(
     ### MODEL EXPLAINABILITY ###
 
     ### EVALUATION ###
-
+    step_evaluate = step(
+        evaluate,
+        role=role,
+        instance_type=process_instance_type_param,
+        name=f"evaluate",
+        keep_alive_period_in_seconds=3600,
+    )(
+        test_x_data_s3_path=step_preprocess['test_x_data'],
+        test_y_data_s3_path=step_preprocess['test_y_data'],
+        model_s3_path=step_train.properties.ModelArtifacts.S3ModelArtifacts,
+        output_s3_prefix=output_s3_prefix,
+        tracking_server_arn=tracking_server_arn_param,
+        experiment_name=step_preprocess['experiment_name'],
+        pipeline_run_id=step_preprocess['pipeline_run_id'],
+    )
     ### EVALUATION ###
 
     ### MODEL REGISTER ###
+    step_register = step(
+        register,
+        role=role,
+        instance_type=process_instance_type_param,
+        name="register",
+        keep_alive_period_in_seconds=3600,
+    )(
+        training_job_name=step_train.properties.TrainingJobName,
+        model_package_group_name=model_package_group_name_param,
+        model_approval_status=model_approval_status_param,
+        evaluation_result=step_evaluate['evaluation_result'],
+        output_s3_prefix=output_s3_url,
+        tracking_server_arn=tracking_server_arn_param,
+        experiment_name=step_preprocess['experiment_name'],
+        pipeline_run_id=step_preprocess['pipeline_run_id'],
+        model_data_quality_check_statistics=data_quality_check_step.properties.CalculatedBaselineStatistics,
+        model_data_quality_check_contraints=data_quality_check_step.properties.CalculatedBaselineConstraints,
+        model_data_bias_check_constraints=data_bias_check_step.properties.CalculatedBaselineConstraints,
+        model_quality_check_statistics=model_quality_check_step.properties.CalculatedBaselineStatistics,
+        model_quality_check_constraints=model_quality_check_step.properties.CalculatedBaselineConstraints,
+        model_bias_check_constraints=model_bias_check_step.properties.CalculatedBaselineConstraints,
+        model_explainability_contraints=model_explainability_check_step.properties.CalculatedBaselineConstraints,
+        drift_data_quality_check_statistics=data_quality_check_step.properties.BaselineUsedForDriftCheckStatistics,
+        drift_data_quality_check_contraints=data_quality_check_step.properties.BaselineUsedForDriftCheckConstraints,
+        drift_data_bias_check_contraints=data_bias_check_step.properties.BaselineUsedForDriftCheckConstraints,
+        drift_model_bias_check_config=model_bias_check_config.monitoring_analysis_config_uri,
+        drift_model_quality_check_statistics=model_quality_check_step.properties.BaselineUsedForDriftCheckStatistics,
+        drift_model_quality_check_constraints=model_quality_check_step.properties.BaselineUsedForDriftCheckConstraints,
+        drift_model_bias_check_constraints=model_bias_check_step.properties.BaselineUsedForDriftCheckConstraints,
+        drift_model_explainability_check_constraints=model_explainability_check_step.properties.BaselineUsedForDriftCheckConstraints,
+        drift_model_explainability_check_config=model_explainability_check_config.monitoring_analysis_config_uri,
+    )
+
+    step_fail = FailStep(
+        name="fail",
+        error_message=Join(on=" ", values=["Execution failed due to AUC Score < ", test_score_threshold_param]),
+    )
+
+    # condition to check in the condition step
+    condition_gte = ConditionGreaterThanOrEqualTo(
+            left=step_evaluate['evaluation_result']['classification_metrics']['auc_score']['value'],  
+            right=test_score_threshold_param,
+    )
+
+    # conditional register step
+    step_conditional_register = ConditionStep(
+        name=f"check-metrics",
+        conditions=[condition_gte],
+        if_steps=[step_register],
+        else_steps=[step_fail],
+    )
     ### MODEL REGISTER ###
 
     ### BUILD PIPELINE ###
@@ -620,7 +685,8 @@ def get_pipeline(
                step_transform,
                model_quality_check_step,
                model_bias_check_step,
-               model_explainability_check_step],
+               model_explainability_check_step,
+               step_conditional_register],
         pipeline_definition_config=PipelineDefinitionConfig(use_custom_job_prefix=True)
     )
     ### BUILD PIPELINE ###
