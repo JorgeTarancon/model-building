@@ -180,16 +180,7 @@ def get_pipeline(
 
     output_s3_prefix = f"s3://{bucket_name}/{pipeline_name_prefix}"
     # Set the output S3 url for model artifact
-    output_s3_url = f"{output_s3_prefix}/output"
-
-    # Set the output S3 urls for processed data
-    train_s3_url = f"{output_s3_prefix}/train"
-    validation_s3_url = f"{output_s3_prefix}/validation"
-    test_s3_url = f"{output_s3_prefix}/test"
-    evaluation_s3_url = f"{output_s3_prefix}/evaluation"
-
-    baseline_s3_url = f"{output_s3_prefix}/baseline"
-    prediction_baseline_s3_url = f"{output_s3_prefix}/prediction_baseline"
+    output_s3_url = f"{output_s3_prefix}/models"
 
     xgboost_image_uri = sagemaker.image_uris.retrieve(
             "xgboost", 
@@ -323,7 +314,7 @@ def get_pipeline(
     data_quality_check_config = DataQualityCheckConfig(
         baseline_dataset=step_preprocess["train_data"],
         dataset_format=DatasetFormat.csv(header=False, output_columns_position="START"),
-        output_s3_uri=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'dataqualitycheckstep'])
+        output_s3_uri=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, "monitor", ExecutionVariables.PIPELINE_EXECUTION_ID, 'dataqualitycheckstep'])
     )
 
     data_quality_check_step = QualityCheckStep(
@@ -351,10 +342,10 @@ def get_pipeline(
 
     data_bias_data_config = DataConfig(
         s3_data_input_path=step_preprocess["train_data"],
-        s3_output_path=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'databiascheckstep']),
+        s3_output_path=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, "monitor", ExecutionVariables.PIPELINE_EXECUTION_ID, 'databiascheckstep']),
         label=0,
         dataset_type="text/csv",
-        s3_analysis_config_output_path=f"s3://{bucket_name}/{pipeline_name_prefix}/databiascheckstep/analysis_cfg",
+        s3_analysis_config_output_path=f"s3://{bucket_name}/{pipeline_name_prefix}/monitor/databiascheckstep/analysis_cfg",
     )
 
     # We are using this bias config to configure clarify to detect bias based on the first feature in the featurized vector
@@ -452,7 +443,7 @@ def get_pipeline(
         instance_count=1,
         accept="text/csv",
         assemble_with="Line",
-        output_path=f"s3://{bucket_name}/{pipeline_name_prefix}/Transform",
+        output_path=f"s3://{bucket_name}/{pipeline_name_prefix}/transform",
         sagemaker_session=session,
     )
 
@@ -473,7 +464,7 @@ def get_pipeline(
     model_quality_check_config = ModelQualityCheckConfig(
         baseline_dataset=step_transform.properties.TransformOutput.S3OutputPath,
         dataset_format=DatasetFormat.csv(header=False),
-        output_s3_uri=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'modelqualitycheckstep']),
+        output_s3_uri=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, "monitor", ExecutionVariables.PIPELINE_EXECUTION_ID, 'modelqualitycheckstep']),
         problem_type='BinaryClassification',
         probability_attribute="_c1",
         probability_threshold_attribute="0.5",
@@ -498,8 +489,8 @@ def get_pipeline(
 
     model_bias_data_config = DataConfig(
         s3_data_input_path=step_preprocess["train_data"],
-        s3_output_path=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'modelbiascheckstep']),
-        s3_analysis_config_output_path=f"s3://{bucket_name}/{pipeline_name_prefix}/modelbiascheckstep/analysis_cfg",
+        s3_output_path=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, "monitor", ExecutionVariables.PIPELINE_EXECUTION_ID, 'modelbiascheckstep']),
+        s3_analysis_config_output_path=f"s3://{bucket_name}/{pipeline_name_prefix}/monitor/modelbiascheckstep/analysis_cfg",
         label=0,
         dataset_type="text/csv",
     )
@@ -552,7 +543,7 @@ def get_pipeline(
 
     model_explainability_data_config = DataConfig(
         s3_data_input_path=step_preprocess["train_data"],
-        s3_output_path=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'modelexplainabilitycheckstep']),
+        s3_output_path=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, "monitor", ExecutionVariables.PIPELINE_EXECUTION_ID, 'modelexplainabilitycheckstep']),
         s3_analysis_config_output_path=model_explainability_analysis_cfg_output_path,
         label=0,
         dataset_type="text/csv",
@@ -582,7 +573,7 @@ def get_pipeline(
         evaluate,
         role=role,
         instance_type=process_instance_type_param,
-        name=f"evaluate",
+        name="evaluate",
         keep_alive_period_in_seconds=3600,
     )(
         test_x_data_s3_path=step_preprocess['test_x_data'],
@@ -636,13 +627,13 @@ def get_pipeline(
 
     # condition to check in the condition step
     condition_gte = ConditionGreaterThanOrEqualTo(
-            left=step_evaluate['evaluation_result']['classification_metrics']['auc_score']['value'],  
+            left=step_evaluate['evaluation_result']['classification_metrics']['auc_score']['value'],
             right=test_score_threshold_param,
     )
 
     # conditional register step
     step_conditional_register = ConditionStep(
-        name=f"check-metrics",
+        name="check-metrics",
         conditions=[condition_gte],
         if_steps=[step_register],
         else_steps=[step_fail],

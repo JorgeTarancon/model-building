@@ -87,12 +87,12 @@ def preprocess(
         )
 
         # Set S3 upload path
-        train_data_output_s3_path = f"{output_s3_prefix}/train/train.csv"
-        validation_data_output_s3_path = f"{output_s3_prefix}/validation/validation.csv"
-        test_x_data_output_s3_path = f"{output_s3_prefix}/test/test_x.csv"
-        test_y_data_output_s3_path = f"{output_s3_prefix}/test/test_y.csv"
-        test_data_output_s3_path = f"{output_s3_prefix}/test/test.csv"
-        baseline_data_output_s3_path = f"{output_s3_prefix}/baseline/baseline.csv"
+        train_data_output_s3_path = f"{output_s3_prefix}/data/train/train.csv"
+        validation_data_output_s3_path = f"{output_s3_prefix}/data/validation/validation.csv"
+        test_x_data_output_s3_path = f"{output_s3_prefix}/data/test/test_x.csv"
+        test_y_data_output_s3_path = f"{output_s3_prefix}/data/test/test_y.csv"
+        test_data_output_s3_path = f"{output_s3_prefix}/data/test/test.csv"
+        baseline_data_output_s3_path = f"{output_s3_prefix}/data/baseline/baseline.csv"
         
         # Upload datasets to S3
         train_data.to_csv(train_data_output_s3_path, index=False, header=False)
