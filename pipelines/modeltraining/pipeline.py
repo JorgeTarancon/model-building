@@ -359,7 +359,7 @@ def get_pipeline(
 
     # We are using this bias config to configure clarify to detect bias based on the first feature in the featurized vector
     data_bias_config = BiasConfig(
-        label_values_or_threshold=[1], facet_name=[1], facet_values_or_threshold=None
+        label_values_or_threshold=[1], facet_name=[1], facet_values_or_threshold=[[0.5]]
     )
 
     data_bias_check_config = DataBiasCheckConfig(
@@ -512,7 +512,7 @@ def get_pipeline(
 
     # We are using this bias config to configure clarify to detect bias based on the first feature in the featurized vector for Sex
     model_bias_config = BiasConfig(
-        label_values_or_threshold=[1], facet_name=[1], facet_values_or_threshold=None
+        label_values_or_threshold=[1], facet_name=[1], facet_values_or_threshold=[[0.5]]
     )
 
     model_bias_check_config = ModelBiasCheckConfig(
