@@ -452,7 +452,7 @@ def get_pipeline(
         instance_count=1,
         accept="text/csv",
         assemble_with="Line",
-        output_path=f"s3://{bucket_name}/Transform",
+        output_path=f"s3://{bucket_name}/{pipeline_name_prefix}/Transform",
         sagemaker_session=session,
     )
 
@@ -475,8 +475,9 @@ def get_pipeline(
         dataset_format=DatasetFormat.csv(header=False),
         output_s3_uri=Join(on='/', values=['s3:/', bucket_name, pipeline_name_prefix, ExecutionVariables.PIPELINE_EXECUTION_ID, 'modelqualitycheckstep']),
         problem_type='BinaryClassification',
-        inference_attribute='_c0',
-        ground_truth_attribute='_c1'
+        probability_attribute="_c1",
+        probability_threshold_attribute="0.5",
+        ground_truth_attribute='_c0'
     )
 
     model_quality_check_step = QualityCheckStep(
